@@ -1,0 +1,170 @@
+---
+title: "Spatial Analysis"
+output: html_document
+date: "2023-11-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load tidyverse and dataframe that was created in "Monthly Train Relative Scores.Rmd"
+```{r}
+library(tidyverse)
+
+# Load in the train scores df that contains ridership and frequency data, as well as coordinates of each stop
+train_stops <- read.csv('train monthly scores.csv')
+
+#Make the coordinates data type into numeric
+train_stops$latitude <- as.numeric(train_stops$latitude)
+train_stops$longitude <- as.numeric(train_stops$longitude)
+
+head(train_stops)
+```
+### Load in the property data
+```{r}
+# Load data
+property_2013_2019 <- read.csv("property values 2013.csv")
+
+# Remove NAs
+property_2013_2019 <- property_2013_2019[complete.cases(property_2013_2019$Longitude, property_2013_2019$Latitude), ]
+
+#Convert Sale.Date into a date datatype
+property_2013_2019 <- mutate(property_2013_2019, date = as.Date(Sale.Date, format = '%m/%d/%Y'))
+
+# Clean property data to have only relevant columns
+prop_coord <- property_2013_2019 %>%
+  select(c("prop_id", "Longitude", "Latitude", "date")) %>%
+  mutate(year = lubridate::year(date),
+         month = lubridate::month(date, label = TRUE, abbr = FALSE)) %>%
+  select(-date)
+head(prop_coord)
+
+# Remove the columns
+prop_coord <- na.omit(prop_coord)
+names(prop_coord)
+
+# View data
+head(prop_coord)
+
+# Convert Longitude and Latitude to numeric
+prop_coord$Latitude <- as.numeric(prop_coord$Latitude)
+prop_coord$Longitude <- as.numeric(prop_coord$Longitude)
+```
+
+### Convert dataframes into spacial objects
+```{r}
+# Load required packages
+library(sf)
+
+# Convert the data frames into spatial objects
+#train_sf <- st_as_sf(train_stops[sample(nrow(train_stops), 2000),], coords = c("longitude", "latitude"))
+#property_sf <- st_as_sf(prop_coord[sample(nrow(prop_coord), 20000),], coords = c('Longitude', 'Latitude'))
+
+# Free space by removing df's that are no longer needed
+#rm(train_stops)
+#rm(property_2013_2019)
+#rm(prop_coord)
+
+# Set CRS for spatial objects
+#train_sf <- st_set_crs(train_sf, "+proj=longlat +datum=WGS84")
+
+#property_sf <- st_set_crs(property_sf, "+proj=longlat +datum=WGS84")
+
+
+#Set appropriate CRS (Allows us to measure distance in miles)
+#train_sf <- st_transform(train_sf, crs = st_crs("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+
+#property_sf <- st_transform(property_sf, crs = st_crs("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+```
+### Calculate the number of stops within a 0.5 mile radius for each property within a given month in a given year. Sum up the scores of the stops that is captured in radius to assign a property a transit score
+```{r}
+library(dplyr)
+
+# Define a function to calculate distances and average scores
+#calculate_distances_and_scores <- function(property, train) {
+  
+  # Buffer the property points to create a circle with a 0.5 mile radius
+ # property_buffered <- st_buffer(st_as_sf(property), dist = 0.5 * 1609.34)  # 1 mile = 1609.34 meters
+  
+  # Spatial join to identify train stations within the buffer for each property
+ # result_df <- st_join(property_buffered, st_as_sf(train))
+  
+  # Filter rows with the same year and month
+ # result_df <- filter(result_df, year.x == year.y, month.x == month.y)
+  
+  # Group by property_id, year, and month, and calculate the average score
+ # result_df %>%
+##    group_by(prop_id, year.x, month.x) %>%
+#    summarise(total_score = sum(norm_score),
+#              num_trains = n())
+#}
+
+# Use the function to calculate distances and average scores
+#result_df <- calculate_distances_and_scores(property_sf, train_sf)
+
+# View the resulting data frame
+#head(arrange(result_df, desc(num_trains)))
+```
+### Visualize the data
+```{r}
+#ggplot() +
+#  geom_sf(data = train_sf, color = "red", size = 5, alpha = .1) +
+#  geom_sf(data = property_sf, color = "blue", size = 2, alpha = .02) +
+ # theme_minimal()
+```
+
+### Activate chunk below to create csv file for "Transit Score sample csv.RMD"
+```{r}
+
+# Load required packages
+library(sf)
+library(dplyr)
+
+# Initialize an empty dataframe to store the results
+combined_results <- data.frame()
+
+# Repeat the process 100 times
+for (i in 1:100) {
+  # Convert the data frames into spatial objects
+  train_sf <- st_as_sf(train_stops[sample(nrow(train_stops), 2000),], coords = c("longitude", "latitude"))
+  property_sf <- st_as_sf(prop_coord[sample(nrow(prop_coord), 20000),], coords = c('Longitude', 'Latitude'))
+
+  # Set CRS for spatial objects
+  train_sf <- st_set_crs(train_sf, "+proj=longlat +datum=WGS84")
+  property_sf <- st_set_crs(property_sf, "+proj=longlat +datum=WGS84")
+
+  # Set appropriate CRS (Allows us to measure distance in miles)
+  train_sf <- st_transform(train_sf, crs = st_crs("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+  property_sf <- st_transform(property_sf, crs = st_crs("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+
+  # Define a function to calculate distances and average scores
+  calculate_distances_and_scores <- function(property, train) {
+    # Buffer the property points to create a circle with a 0.5 mile radius
+    property_buffered <- st_buffer(st_as_sf(property), dist = 0.5 * 1609.34)  # 1 mile = 1609.34 meters
+    
+    # Spatial join to identify train stations within the buffer for each property
+    result_df <- st_join(property_buffered, st_as_sf(train))
+    
+    # Filter rows with the same year and month
+    result_df <- filter(result_df, year.x == year.y, month.x == month.y)
+    
+    # Group by property_id, year, and month, and calculate the average score
+    result_df %>%
+      group_by(prop_id, year.x, month.x) %>%
+      summarise(total_score = sum(norm_score),
+                num_trains = n())
+  }
+
+  # Use the function to calculate distances and average scores
+  result_df <- calculate_distances_and_scores(property_sf, train_sf)
+
+  # Bind the result to the combined_results dataframe
+  combined_results <- rbind(combined_results, result_df)
+}
+
+
+# Save the combined results to a CSV file
+#write.csv(combined_results, "combined_results.csv", row.names = FALSE)
+```
+
