@@ -1,0 +1,162 @@
+---
+title: "Monthly Bus Relative Scores"
+output: html_document
+date: "2023-11-14"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+library(tidyverse)
+```
+### Load in ridership data
+```{r}
+# Load in bus route ridership dataset
+bus_ridership <- read_csv('CTA Bus Ridership.csv')
+head(bus_ridership)
+
+# Convert date into proper data type
+bus_ridership <- mutate(bus_ridership, date = as.Date(date, format = '%m/%d/%Y'))
+str(bus_ridership)
+
+# filter for dates after 2013
+bus_rides_2013 <- filter(bus_ridership, date > as.Date('2013-01-01') & date < as.Date('2020-01-01'))
+head(bus_rides_2013)
+```
+### Load in the frequency data
+```{r}
+# Load in the bus route frequency data
+ride_visits <- readxl::read_xlsx('MSBA CTA.xlsx')
+head(ride_visits)
+
+# Remove unwanted column
+ride_visits <- ride_visits[-4]
+head(ride_visits)
+```
+### Join the two datasets
+```{r}
+#Join the frequency and ridership tables
+bus_ride_freq <- left_join(bus_rides_2013, ride_visits, c('route' = 'route_number', 'daytype' = 'day'))
+head(bus_ride_freq)
+
+#Remove dataframes no longer needed to free up space
+rm(bus_rides_2013)
+rm(ride_visits)
+rm(bus_ridership)
+
+#Identify null values
+null <- bus_ride_freq %>% filter(is.na(route_name)) %>% distinct(route)
+print(null, n = 37)
+
+#Get rid of null values
+bus_route <- na.omit(bus_ride_freq)
+head(bus_route)
+```
+### Convert Daily data into monthly data
+```{r}
+monthly_bus <- bus_route %>%
+  
+  # Drop 'daytype'
+  select(-daytype) %>%
+  
+  # Create columns for year and month
+  mutate(year = lubridate::year(date),
+         month = lubridate::month(date, label = TRUE, abbr = FALSE)) %>%
+  
+  # Drop the 'date' column
+  select(-date) %>%
+  
+  # Group by station_id, year, and month
+  group_by(route, year, month) %>%
+  
+  # Calculate the mean of num_visits and rides
+  summarise(avg_frequency = mean(num_of_visits),
+            avg_rides = mean(rides), .groups = 'drop')
+
+```
+### Assign each observation a relative score
+```{r}
+# Calculate relative sores for each bus route using the following function
+bus_scores <- mutate(monthly_bus, score = ((avg_rides + 1) * (avg_frequency + 1))^(1/3),
+                    norm_score = score / max(score) * 100)
+
+# Analyze distribution of relative scores
+summary(bus_scores$score)
+summary(bus_scores$norm_score)
+
+# Visualize distribution of relative scores
+ggplot(bus_scores, aes(x = norm_score)) +
+  geom_histogram(bins = 50)
+```
+### Import bus stop data to convert route data to the stop level
+```{r}
+# Import bus stop data
+bus_stops <- readxl::read_xlsx('Bus Stops.xlsx')
+head(bus_stops)
+```
+
+### Join the bus stop data with the route data
+```{r}
+# Join the data
+bus_stops <- left_join(bus_stops, bus_scores, c('route' = 'route'))
+
+# Get rid of columns we no longer need to free up space
+rm(bus_final)
+rm(bus_ride_freq)
+rm(monthly_bus)
+
+# Get rid of nulls
+bus_stops <- na.omit(bus_stops)
+head(bus_stops)
+```
+### Visualize distribtuion of relative scores across all 
+```{r}
+ggplot(bus_stops, aes(x = norm_score)) +
+  geom_histogram()
+```
+### Load in the dataset with coordinates for bus stops. Format the lattitude and longitude
+```{r}
+bus_coords<- read.csv('bus coords.csv')
+
+# get rid of the parenthesis in the data
+bus_coords$lattitude <- gsub("\\(|\\)", "", bus_coords$lattitude) 
+bus_coords$longitude <- gsub("\\(|\\)", "", bus_coords$longitude)
+
+# convert columns to the correct data types
+bus_coords$lattitude <- as.numeric(bus_coords$lattitude) 
+bus_coords$longitude <- as.numeric(bus_coords$longitude)
+bus_coords$SYSTEMSTOP <- as.character(bus_coords$SYSTEMSTOP)
+
+head(bus_coords)
+```
+### Join the coordinates with our data of relative scores
+```{r}
+# convert column to the correct data type
+bus_stops$stop_id <- as.character(bus_stops$stop_id)
+
+# Join the data we have for each stop with the coordinate of each stop
+bus_spatial <- left_join(bus_stops, bus_coords, c('stop_id' = 'SYSTEMSTOP'))
+
+# Remove null values
+bus_spatial <- na.omit(bus_spatial)
+
+# Only select columns of interest
+bus_spatial <- bus_spatial %>%
+  select(c(1:11)) %>%
+  select(-2)
+
+# Remove data frames no longer needed to free up space
+rm(bus_stops)
+rm(bus_coords)
+```
+
+### Convert bus_spatial into a csv file to continue work on new notebook
+```{r}
+csv_file_path <- "/Users/joel3/OneDrive/Documents/CTA Project/Relative Scores/bus data.csv"
+
+write.csv(bus_spatial, file = csv_file_path, row.names = FALSE)
+```
+
