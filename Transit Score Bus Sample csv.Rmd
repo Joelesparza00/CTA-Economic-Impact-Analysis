@@ -1,0 +1,58 @@
+---
+title: "Untitled"
+output: html_document
+date: "2023-12-06"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+# Load in data from "Bus Stops Spatial Analysis.Rmd"
+library(readr)
+library(tidyverse)
+combined_results <- read_csv("combined_results.csv")
+View(combined_results)
+head(combined_results)
+```
+```{r}
+# Assuming your dataset is already loaded as combined_results
+
+# Convert prop_id to rounded integer
+combined_results$prop_id <- round(combined_results$prop_id)
+
+# Round and format year to have 4 digits
+combined_results$year.x <- round(combined_results$year.x)
+
+# Filter rows where month.x and month.y do not contain any numeric values
+combined_results <- combined_results %>%
+  filter(!grepl("\\d", combined_results$month.x))
+
+# Disable scientific notation for total_score and num_trains columns
+options(scipen = 999)  # Disable scientific notation
+combined_results$num_trains <- round(combined_results$num_bus)
+
+# Drop the last column
+combined_results <- combined_results[, -ncol(combined_results)]
+
+# Display the modified dataset
+head(combined_results)
+
+sample_transit_scores <- combined_results %>%
+                                  filter(total_score < 1000) %>%
+                                  select(prop_id, total_score, num_bus)
+head(sample_transit_scores)
+str(sample_transit_scores)
+```
+
+```{r}
+# verification
+arrange(sample_transit_scores, desc(num_bus))
+length(unique(sample_transit_scores$prop_id))
+```
+```{r}
+# Save the sample_transit_scores dataframe to a CSV file
+write.csv(sample_transit_scores, "sample_bus_scores.csv", row.names = FALSE)
+```
+
