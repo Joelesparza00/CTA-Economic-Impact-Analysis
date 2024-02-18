@@ -1,0 +1,60 @@
+---
+title: "Transit scores by Zip"
+author: "Robbie Stirling (rcs4)"
+date: "2024-02-18"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+# Import file
+```{r}
+library(readr)
+rental_and_train_data <- read_csv("BADM 550 - Business Practicum/CTA/Rental Data/rental_and_train_data.csv")
+head(rental_and_train_data)
+```
+
+# Calculate statistics for transit score value
+```{r}
+library(dplyr)
+
+zip_set <- rental_and_train_data %>%
+  
+  group_by(zip_code, Year) %>%
+
+  summarise(avg_frequency = mean(total_frequency),
+            avg_rides = mean(total_ridership), .groups = 'drop')
+
+head(zip_set)
+```
+
+# Calculate transit scores
+```{r}
+zipcode_scores <- mutate(zip_set, 
+                    norm_rides = avg_rides / max(avg_rides) * 100, 
+                    norm_frequency = avg_frequency / max(avg_frequency) * 100, 
+                    score = ((norm_rides + 1) * (norm_frequency + 1)) ^ (1/3), 
+                    norm_score = score / max(score) * 100)
+
+head(zipcode_scores)
+```
+
+Calculate variance of Transit Scores
+```{r}
+variance_scores <- var(zipcode_scores$norm_score)
+
+print(variance_scores)
+```
+
+Calculate mean
+```{r}
+mean_scores <- mean(zipcode_scores$norm_score)
+
+print(mean_scores)
+```
+
+Calculate standard deviation
+```{r}
+std_scores <- sd(zipcode_scores$norm_score)
+```
