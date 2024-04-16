@@ -1,0 +1,172 @@
+---
+title: "2023 Traffic & Transit Spatial Join"
+author: "Joel Esparza"
+date: "2024-04-11"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+```
+
+```{r}
+traffic <- read.csv('2023 Daily Traffic Numbers.csv')
+transit <- read.csv('2023 train&bus data.csv')
+
+str(traffic)
+str(transit)
+head(traffic)
+head(transit)
+```
+
+```{r}
+colnames(traffic)
+str(traffic)
+```
+
+```{r}
+# Convert TIME column to date type and remove time aspect
+traffic <- traffic %>%
+  mutate(TIME = as.Date(TIME, format = "%m/%d/%Y"))
+
+# Verify the changes
+head(traffic)
+```
+
+```{r}
+traffic_aggregated <- traffic %>%
+  group_by(TIME, REGION_ID) %>%
+  summarise(avg_speed = mean(SPEED),
+            total_bus_count = sum(BUS_COUNT),
+            total_num_reads = sum(NUM_READS)) %>%
+  left_join(select(traffic, TIME, REGION_ID, REGION, WEST, EAST, NORTH, SOUTH), by = c("TIME", "REGION_ID")) %>%
+  distinct()
+
+# Printing the first few rows of the aggregated dataframe
+head(traffic_aggregated)
+```
+
+### Convert bus_spatial into a csv file to continue work on new notebook
+```{r}
+#csv_file_path <- "~/CTA Project/CTA Project/MSBA CTA Work Files/2023 daily traffic.csv"
+
+#write.csv(traffic_aggregated, file = csv_file_path, row.names = FALSE)
+```
+
+```{r}
+rm(traffic)
+# Unique dates in transit data frame
+unique_dates_transit <- unique(transit$date)
+
+# Unique dates in traffic_aggregated data frame
+unique_dates_traffic <- unique(traffic_aggregated$TIME)
+
+# Find the common dates
+common_dates <- unique_dates_transit[unique_dates_transit %in% unique_dates_traffic]
+
+# Filter transit data frame to retain only common dates
+transit_filtered <- transit[transit$date %in% common_dates, ]
+
+# Filter traffic_aggregated data frame to retain only common dates
+traffic_aggregated_filtered <- traffic_aggregated[traffic_aggregated$TIME %in% common_dates, ]
+
+
+rm(transit)
+rm(traffic_aggregated)
+
+# Rename columns directly
+traffic_aggregated_filtered$longitude_1 <- traffic_aggregated_filtered$WEST
+traffic_aggregated_filtered$longitude_2 <- traffic_aggregated_filtered$EAST
+traffic_aggregated_filtered$latitude_1 <- traffic_aggregated_filtered$NORTH
+traffic_aggregated_filtered$latitude_2 <- traffic_aggregated_filtered$SOUTH
+
+# Drop the original columns if needed
+traffic_aggregated_filtered <- traffic_aggregated_filtered[, !names(traffic_aggregated_filtered) %in% c("WEST", "EAST", "NORTH", "SOUTH")]
+
+```
+
+```{r}
+# Function to create subsets for each month in each year and assign them to variables
+create_monthly_subsets <- function(data, date_column_name, prefix) {
+  # Convert the date column to Date type if it's not already
+  if (!inherits(data[[date_column_name]], "Date")) {
+    data[[date_column_name]] <- as.Date(data[[date_column_name]])
+  }
+  
+  # Extract unique years and months
+  unique_years <- unique(format(data[[date_column_name]], "%Y"))
+  unique_months <- unique(format(data[[date_column_name]], "%m"))
+  
+  # Create subsets for each month in each year and assign them to variables
+  for (year in unique_years) {
+    for (month in unique_months) {
+      subset_name <- paste(prefix, month, "_", year, sep = "")
+      subset_data <- data[format(data[[date_column_name]], "%Y-%m") == paste(year, "-", month, sep = ""), ]
+      assign(subset_name, subset_data, envir = .GlobalEnv)
+    }
+  }
+}
+
+# Create subsets for transit_filtered with date column named "date" and unique prefix "transit"
+create_monthly_subsets(transit_filtered, "date", "transit_")
+
+# Create subsets for traffic_aggregated_filtered with date column named "TIME" and unique prefix "traffic"
+create_monthly_subsets(traffic_aggregated_filtered, "TIME", "traffic_")
+```
+
+
+## Run Spatial Join
+```{r}
+# Load required packages
+library(sf)
+library(dplyr)
+library(purrr)
+
+# Convert traffic_01_2023 and transit_01_2023 datasets into spatial objects
+traffic_sf <- st_as_sf(traffic_01_2023, coords = c("longitude_1", "latitude_1"), crs = 4326)
+transit_sf <- st_as_sf(transit_01_2023, coords = c("longitude", "latitude"), crs = 4326)
+
+# Set appropriate CRS for spatial objects
+traffic_sf <- st_set_crs(traffic_sf, 4326)
+transit_sf <- st_set_crs(transit_sf, 4326)
+
+# Transform CRS of spatial objects for distance calculations
+traffic_sf <- st_transform(traffic_sf, crs = st_crs("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+transit_sf <- st_transform(transit_sf, crs = st_crs("+proj=utm +zone=16 +datum=WGS84 +units=m +no_defs"))
+
+# Define a function to calculate total ridership and frequency within a 1-mile radius for each traffic coordinate
+calculate_totals <- function(traffic_point, transit_points) {
+  buffer <- st_buffer(traffic_point, dist = 1609.34)
+  transit_within <- transit_points[st_within(transit_points, buffer), ]
+  transit_within_same_date <- transit_within[as.Date(transit_within$date) == as.Date(traffic_point$TIME), ]
+  total_ridership <- sum(transit_within_same_date$rides)
+  total_frequency <- sum(transit_within_same_date$frequency)
+  return(c(total_ridership, total_frequency))
+}
+
+
+# Apply the function row-wise to each traffic point and create new columns for total ridership and frequency
+traffic_sf <- traffic_sf %>%
+  rowwise() %>%
+  mutate(total_ridership = calculate_totals(geometry, transit_sf)[1],
+         total_frequency = calculate_totals(geometry, transit_sf)[2])
+
+# Plot the traffic points
+plot(traffic_sf$West, traffic_sf$South, col = "red", pch = 20, cex = 0.7, main = "Traffic Coordinates")
+
+# Optionally, plot the transit stops as well
+points(transit_sf$longitude, transit_sf$latitude, col = "blue", pch = 20, cex = 0.7)
+```
+
+```{r}
+str(traffic_01_2023)
+```
+
+```{r}
+str(transit_01_2023)
+```
+
