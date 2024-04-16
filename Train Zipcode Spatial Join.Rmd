@@ -1,0 +1,82 @@
+---
+title: "Spatial Analysis"
+output: html_document
+date: "2023-11-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load tidyverse and dataframe that was created in "Monthly Train Relative Scores.Rmd"
+```{r}
+library(tidyverse)
+
+# Load in the train df that contains ridership and frequency data, as well as coordinates of each stop
+train_stops <- read.csv('train annual data.csv')
+
+head(train_stops)
+```
+
+```{r}
+library(tigris)
+library(sf)
+
+# Load the Chicago zip code shapefile for 2010
+chicago_zipcodes <- zctas(year = 2020)
+chicago_zipcodes <- chicago_zipcodes %>% filter((ZCTA5CE20 > 60000) & (ZCTA5CE20 < 70000)) %>% select(ZCTA5CE20, geometry)
+
+
+# Create an sf object from the grouped_data
+train_stop_sf <- st_as_sf(train_stops, coords = c("longitude", "latitude"), crs = 4326)
+
+# Transform the CRS of train_stop_sf to match chicago_zipcodes
+train_stop_sf <- st_transform(train_stop_sf, crs = st_crs(chicago_zipcodes))
+
+# Perform a spatial join to find which stations are in which zip codes
+joined_data <- st_join(train_stop_sf, chicago_zipcodes, join = st_within)
+
+# Now you can plot the spatial map
+ggplot() +
+  geom_sf(data = chicago_zipcodes, color = "black", fill = "lightgrey") +
+  geom_sf(data = joined_data, color = "red", size = 2) +
+  coord_sf(xlim = c(-87.9, -87.5), ylim = c(41.65, 42.15)) +
+  labs(title = "Stations in Greater Chicago Area with Zip Codes",
+       x = "Longitude",
+       y = "Latitude")
+
+```
+
+```{r}
+# Convert the spatial data frame to a regular data frame
+df <- st_drop_geometry(joined_data)
+head(df)
+
+# Aggregate by Zipcode
+df$zipcode <- df$ZCTA5CE20
+df <- df %>% select(-ZCTA5CE20) %>% group_by(zipcode, year) %>% summarize(total_frequency = sum(total_frequency), total_ridership = sum(total_ridership))
+
+# Analyze data vy zipcode
+unique(df$zipcode)
+
+options(scipen = 999)
+
+ggplot(df, aes(x = year, y = total_ridership, color = zipcode)) +
+  geom_line() +
+  scale_x_continuous(breaks = unique(df$year)) +
+  scale_y_continuous(labels = format_labels, breaks = y_breaks) +   
+  labs(title = "Total Ridership Over Years",      
+       x = "Year",                                  
+       y = "Total Ridership") +                    
+  theme_minimal() +                                 
+  ylim(0, 20000000) +                              
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+```
+
+```{r}
+# Export the data frame to a CSV file
+write.csv(df, "train_data_zipcode.csv", row.names = FALSE)
+
+```
+
+

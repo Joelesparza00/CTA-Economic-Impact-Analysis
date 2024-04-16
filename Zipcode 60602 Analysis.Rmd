@@ -1,0 +1,157 @@
+---
+title: "Transit Scores by Zip"
+output: html_document
+date: "2024-02-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+train <- read.csv('train_data_zipcode.csv')
+rent <- read.csv('rental_data.csv')
+
+# Merge the datasets based on the respective columns
+join <- left_join(train, rent, by = c("zipcode" = "zip_code", "year" = "Year"))
+join <- filter(join, year > 2013)
+
+# Display the first few rows of the merged dataset
+head(join)
+str(join)
+```
+
+```{r}
+summary(join)
+```
+
+```{r}
+join <- mutate(join, transit_score = log((total_frequency / 10) * (total_ridership / 10)))
+
+ggplot(join, aes(transit_score)) +
+ geom_histogram(bins = 50)
+
+# Calculate the minimum and maximum of transit_score
+min_transit_score <- min(join$transit_score)
+max_transit_score <- max(join$transit_score)
+
+# Normalize transit_score to be in the range of 0-100 and centered at 50
+join <- mutate(join, transit_score = ((transit_score - min_transit_score) / (max_transit_score - min_transit_score)) * 100)
+
+# Plot histogram of centered_transit_score
+ggplot(join, aes(transit_score)) +
+  geom_histogram(bins = 50)
+```
+
+
+```{r}
+# Trend of Ridership Over Time
+ridership_trend <- join %>%
+  ggplot(aes(x = year, y = transit_score)) +
+  geom_line(aes(group = zipcode), color = "lightgrey") +  
+  geom_line(data = filter(join, zipcode == 60602), color = "red", size = 1.5) +  # Highlight 60602
+  labs(title = "Trend of Ridership Over Time",
+       x = "Year",
+       y = "Total Ridership",
+       color = "Zipcode") +
+  theme_minimal() +
+  theme(legend.position = "right")  # Position legend on top for clarity
+
+# Show the plot
+print(ridership_trend)
+
+
+```
+
+```{r}
+zip60602 <- join %>% filter(zipcode == 60602)
+
+# Create the line graph for rental rates
+line_graph <- ggplot(zip60602, aes(x = year)) +
+  geom_line(aes(y = area_rent_br0, color = "0 Bedrooms")) +
+  geom_line(aes(y = area_rent_br1, color = "1 Bedroom")) +
+  geom_line(aes(y = area_rent_br2, color = "2 Bedrooms")) +
+  geom_line(aes(y = area_rent_br3, color = "3 Bedrooms")) +
+  geom_line(aes(y = area_rent_br4, color = "4 Bedrooms")) +
+  labs(title = "Annual Rental Rates Over Time (60602)",
+       x = "Year",
+       y = "Rental Rate",
+       color = "Number of Bedrooms") +
+  theme_minimal() +
+  theme(legend.position = "top") +
+  scale_color_manual(values = c("0 Bedrooms" = "blue", "1 Bedroom" = "green", "2 Bedrooms" = "red", 
+                                 "3 Bedrooms" = "purple", "4 Bedrooms" = "orange"))
+
+# Show the line graph
+print(line_graph)
+```
+
+```{r}
+# Install and load the png package if you haven't already
+install.packages("png")
+library(png)
+
+# Set the file path of the PNG image
+file_path <- "60602.png"
+
+# Read the PNG image
+image <- readPNG(file_path)
+
+# Display information about the image
+cat("Image dimensions:", dim(image), "\n")
+
+# Display the image
+plot(1:2, type='n', xlab='', ylab='', xlim=c(0, 1), ylim=c(0, 1))
+rasterImage(image, 0, 0, 1, 1)
+
+```
+
+
+```{r}
+# Filter data and create treatment variable
+data <- join %>%
+  filter(zipcode %in% c(60601, 60602, 60603, 60604, 60605, 60606, 60611)) %>%
+  mutate(treatment = ifelse(zipcode == 60602, 1, 0))
+
+# Create line plots for each rent type
+plot_rent_1 <- ggplot(data, aes(x = year, y = area_rent_br1, color = factor(zipcode))) +
+  geom_line(size = 1) +
+  labs(title = "Rent_1 Trends Over Time by Zipcode",
+       x = "Year",
+       y = "Rent_1 Value",
+       color = "Zipcode") +
+  theme_minimal()
+
+plot_rent_2 <- ggplot(data, aes(x = year, y = area_rent_br2, color = factor(zipcode))) +
+  geom_line(size = 1) +
+  labs(title = "Rent_2 Trends Over Time by Zipcode",
+       x = "Year",
+       y = "Rent_2 Value",
+       color = "Zipcode") +
+  theme_minimal()
+
+plot_rent_3 <- ggplot(data, aes(x = year, y = area_rent_br3, color = factor(zipcode))) +
+  geom_line(size = 1) +
+  labs(title = "Rent_3 Trends Over Time by Zipcode",
+       x = "Year",
+       y = "Rent_3 Value",
+       color = "Zipcode") +
+  theme_minimal()
+
+plot_rent_4 <- ggplot(data, aes(x = year, y = area_rent_br4, color = factor(zipcode))) +
+  geom_line(size = 1) +
+  labs(title = "Rent_4 Trends Over Time by Zipcode",
+       x = "Year",
+       y = "Rent_4 Value",
+       color = "Zipcode") +
+  theme_minimal()
+
+plot_rent_1
+plot_rent_2
+plot_rent_3
+plot_rent_4
+
+```
+

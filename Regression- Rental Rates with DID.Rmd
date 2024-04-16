@@ -1,0 +1,159 @@
+---
+title: "Transit Scores by Zip"
+output: html_document
+date: "2024-02-18"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(tidyverse)
+
+train <- read.csv('train_data_zipcode.csv')
+rent <- read.csv('rental_data.csv')
+
+# Merge the datasets based on the respective columns
+join <- left_join(train, rent, by = c("zipcode" = "zip_code", "year" = "Year"))
+join <- filter(join, year > 2013)
+
+# Display the first few rows of the merged dataset
+head(join)
+str(join)
+```
+
+```{r}
+summary(join)
+```
+
+```{r}
+join <- mutate(join, transit_score = log((total_frequency / 10) * (total_ridership / 10)))
+
+ggplot(join, aes(transit_score)) +
+ geom_histogram(bins = 50)
+
+# Calculate the minimum and maximum of transit_score
+min_transit_score <- min(join$transit_score)
+max_transit_score <- max(join$transit_score)
+
+# Normalize transit_score to be in the range of 0-100 and centered at 50
+join <- mutate(join, transit_score = ((transit_score - min_transit_score) / (max_transit_score - min_transit_score)) * 100)
+
+# Plot histogram of centered_transit_score
+ggplot(join, aes(transit_score)) +
+  geom_histogram(bins = 50)
+```
+
+
+```{r}
+# Trend of Ridership Over Time
+ridership_trend <- join %>%
+  ggplot(aes(x = year, y = transit_score)) +
+  geom_line(aes(group = zipcode), color = "blue") +  
+  labs(title = "Transit Scores Over Time",
+       x = "Year",
+       y = "Total Ridership",
+       color = "Zipcode") +
+  theme_minimal() +
+  theme(legend.position = "right")  # Position legend on top for clarity
+
+# Show the plot
+print(ridership_trend)
+
+
+```
+
+
+```{r}
+df <- join %>%
+  pivot_longer(cols = starts_with("area_rent_br"),
+               names_to = "bedrooms",
+               names_prefix = "area_rent_br",
+               values_to = "avg_rent") %>%
+  mutate(bedrooms = as.integer(str_extract(bedrooms, "\\d+")))
+
+# Print the resulting dataframe
+print(df)
+```
+
+```{r}
+reg <- lm(avg_rent ~ bedrooms + transit_score + year + C(zipcode), df)
+summary(reg)
+```
+
+```{r}
+data <- df %>%
+  filter(zipcode %in% c(60601, 60602, 60603, 60604, 60605, 60606, 60611), year < 2020) %>%
+  mutate(extension = ifelse(zipcode == 60602, 1, 0), before_after = ifelse(year > 2016, 1,0)) 
+
+head(data, 150)
+str(data)
+```
+
+# Extension DID
+```{r}
+# Set scipen option to disable scientific notation
+options(scipen = 999)
+
+# Convert 'extension' and 'before_after' to factors if they are not already factors
+data$extension <- as.factor(data$extension)
+data$before_after <- as.factor(data$before_after)
+
+# Define the DiD model
+did <- lm(avg_rent ~ extension + before_after + extension:before_after + bedrooms, data = data)
+
+# Print the summary of the DiD model
+summary(did)
+
+```
+
+```{r}
+# Create a data frame for predictions
+predictions <- expand.grid(before_after = unique(data$before_after),
+                            bedrooms = unique(data$bedrooms),
+                            extension = unique(data$extension))
+
+# Add predictions
+predictions$predicted_avg_rent <- predict(did, newdata = predictions)
+
+# Plot the graph
+ggplot(predictions, aes(x = before_after, y = predicted_avg_rent, color = as.factor(extension))) +
+  geom_line(aes(group = interaction(extension, bedrooms))) +
+  geom_point(aes(group = interaction(extension, bedrooms))) +
+  facet_wrap(~ bedrooms, scales = "free_y") +
+  labs(x = "Before/After", y = "Predicted Rent Rate", color = "Extension") +
+  theme_minimal()
+
+
+```
+
+```{r}
+# Extract predicted rent values for bedrooms = 0
+predicted_rent_bed0 <- subset(predictions, bedrooms == 0)
+
+# Create the table
+table_data <- matrix(c(predicted_rent_bed0[predicted_rent_bed0$extension == 0, "predicted_avg_rent"],
+                       predicted_rent_bed0[predicted_rent_bed0$extension == 1, "predicted_avg_rent"]),
+                     nrow = 2, byrow = TRUE)
+colnames(table_data) <- c("Before", "After")
+rownames(table_data) <- c("No Extension", "Extension")
+
+# Add a comment
+comment <- "For every additional bedroom, add $310 to each of the following values"
+
+# Add a title
+title <- "Average Rent Values for Bedrooms = 0"
+
+# Print the table with title
+knitr::kable(table_data, caption = title, col.names = c("Before", "After")) %>%
+  kableExtra::kable_styling(bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+                            full_width = FALSE) %>%
+  kableExtra::add_header_above(c(" " = 1, " " = 2), font_size = 20) %>%
+  kableExtra::add_header_above(c(" " = 1, " " = 2), font_size = 10, align = "l") %>%
+  kableExtra::add_header_above(c(" " = 1, " " = 2), font_size = 10, align = "l", comment)
+
+
+# For all values in the table, simply add $310 for every additional bedroom added
+```
+

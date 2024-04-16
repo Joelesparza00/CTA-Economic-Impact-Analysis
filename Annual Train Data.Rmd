@@ -1,0 +1,154 @@
+---
+title: "Train Stops Monthly Ridership"
+output: html_document
+date: "2023-11-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+### Load Datasets
+```{r}
+# Load required packages
+library(tidyverse)
+
+# Load the ridership data for trains
+train_ridership <- read.csv("CTA Train Ridership.csv")
+head(train_ridership)
+
+# Load the frequency data for trains
+train_frequency <- readxl::read_xlsx('Train frequencies.xlsx')
+head(train_frequency)
+```
+
+### Joining frequencies and ridership
+```{r}
+# Merge datasets
+train_ridership_frequency <- merge(train_ridership, train_frequency, by.x = c('stationname', 'daytype'), by.y = c('station', 'day'))
+head(train_ridership_frequency)
+
+# Remove data frames not needed anymore
+rm(train_ridership)
+rm(train_frequency)
+
+# Checking data types of each column
+str(train_ridership_frequency)
+```
+
+### Converting type of the date column
+```{r}
+# Conversion of date column to correct format
+train_ridership_frequency <- mutate(train_ridership_frequency, date = as.Date(date, format = '%m/%d/%Y'))
+
+# Check data type
+str(train_ridership_frequency)
+```
+
+### Filter data from 2013 on, to align with property data
+```{r}
+# Data for only 2013 - 2023
+train_ridership_frequency <- filter(train_ridership_frequency, date > as.Date('01/01/2012', format = '%m/%d/%Y'))
+
+# View data
+head(train_ridership_frequency)
+str(train_ridership_frequency)
+```
+### Summarize the results for each station by month
+```{r}
+annual_train <- train_ridership_frequency%>%
+  
+  # Drop 'daytype'
+  select(-daytype) %>%
+  
+  # Create columns for year and month
+  mutate(year = lubridate::year(date)) %>%
+  
+  # Drop the 'date' column
+  select(-date) %>%
+  
+  # Group by station_id, year, and month
+  group_by(station_id, year) %>%
+  
+  # Calculate the mean of num_visits and rides
+  summarise(total_frequency = sum(num_visits),
+            total_ridership = sum(rides), .groups = 'drop')
+
+unique(annual_train$station_id)
+```
+
+
+
+### Need to add locations of each train stop for spatial analysis (longitude and latitude)
+```{r}
+# Load the train locations
+train_locations <- read.csv("coordinates of l stops.csv")
+head(train_locations)
+
+# Merge data frame with scores with locations data frame to get longitude and latitude
+train_final <- left_join(annual_train, train_locations, by = c("station_id" = "MAP_ID"))
+head(train_final)
+
+# Remove data frames no longer need
+rm(train_locations)
+rm(annual_train)
+
+# Droping irrelevant or duplicate columns
+train_final$STOP_ID <- NULL
+train_final$DIRECTION_ID <- NULL
+train_final$STOP_NAME <- NULL
+train_final$STATION_NAME <- NULL
+train_final$STATION_DESCRIPTIVE_NAME <- NULL
+train_final$ADA <- NULL
+train_final$RED <- NULL
+train_final$BLUE <- NULL
+train_final$G <- NULL
+train_final$BRN <- NULL
+train_final$P <- NULL
+train_final$Pexp <- NULL
+train_final$Y <- NULL
+train_final$Pnk <- NULL
+train_final$O <- NULL
+
+# View data
+head(train_final)
+dim(train_final)
+
+# Remove duplicated rows
+train_final <- train_final %>%
+  distinct(station_id, year, .keep_all = TRUE)
+
+# Verify data
+head(train_final)
+dim(train_final)
+```
+
+### Seperate the longitude and latitude column to two seperate columns
+```{r}
+# Load tidyr package
+library(tidyr)
+
+# Sperating location column in the train_final data set
+train_final <- separate(train_final, Location, into = c("latitude", "longitude"), sep = ", ", convert = TRUE)
+head(train_final)
+
+# Remove parentheses from latitude and longitude columns that remain after column split
+train_final$latitude <- gsub("\\(|\\)", "", train_final$latitude)
+train_final$longitude <- gsub("\\(|\\)", "", train_final$longitude)
+
+# Convert the resulting columns to numeric
+train_final$latitude <- as.numeric(train_final$latitude)
+train_final$longitude <- as.numeric(train_final$longitude)
+
+# View dataset
+head(train_final)
+```
+
+
+### Convert monthly_train into csv file
+```{r}
+csv_file_path <- "~/CTA Project/CTA Project/MSBA CTA Work Files/train annual data.csv"
+
+write.csv(train_final, file = csv_file_path, row.names = FALSE)
+```
+
